@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import shutil
+import csv
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -22,9 +23,11 @@ except ImportError:
 # ==============================================================================
 LOGIN_URL = "https://construction.v-office.vn/login"
 URL_LIST = "https://construction.v-office.vn/quan-ly-kho/phieu-van-chuyen"
+URL_CREATE = "https://construction.v-office.vn/quan-ly-kho/phieu-van-chuyen?action=create" 
 AUTH_FILE = "auth_state.json"
 EXCEL_FILE = "Khối lượng.xlsx"
 TEMP_UPLOAD_DIR = "Temp_Upload"
+REPORT_FILE = "Bao_Cao_Ca.csv"  # File báo cáo tự động xuất ra
 
 USERNAME = "0971936186"
 PASSWORD = "Ducviet1996@"
@@ -46,15 +49,15 @@ VI_TRI = "KĐT Hòa Long"
 
 
 # ==============================================================================
-# 2. GIAO DIỆN HÀNG CHỜ (GIỮ LẠI PREVIEW VÀ CUT ẢNH)
+# 2. GIAO DIỆN HÀNG CHỜ (CÓ CHỌN NHÀ CUNG CẤP & XUẤT BÁO CÁO)
 # ==============================================================================
-def open_queue_manager():
+def open_queue_manager(df_excel):
     os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
     queue_data = []
 
     root = tk.Tk()
-    root.title("Bộ lập hàng chờ tạo phiếu vận chuyển (Bản Ổn Định + Tự dọn ảnh)")
-    root.geometry("1000x820")
+    root.title("Bộ lập hàng chờ tạo phiếu vận chuyển (Tự động Xuất Báo Cáo Chốt Ca)")
+    root.geometry("1080x820")
     root.resizable(False, False)
 
     font_lbl = ("Segoe UI", 10)
@@ -68,20 +71,37 @@ def open_queue_manager():
     frame_left = tk.Frame(frame_top, width=450)
     frame_left.pack(side="left", fill="both", padx=15, pady=15, expand=True)
 
-    frame_right = tk.Frame(frame_top, width=500)
+    frame_right = tk.Frame(frame_top, width=600)
     frame_right.pack(side="right", fill="both", padx=15, pady=15, expand=True)
 
+    # 1. Biển số
     tk.Label(frame_left, text="1. Biển số xe:", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 2))
     entry_plate = tk.Entry(frame_left, font=font_entry)
     entry_plate.pack(fill="x", pady=2)
     entry_plate.focus()
 
+    # 2. Số chuyến
     tk.Label(frame_left, text="2. Số chuyến (ví dụ: 1, 2, 3...):", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(8, 2))
     entry_trip = tk.Entry(frame_left, font=font_entry)
     entry_trip.insert(0, "1")
     entry_trip.pack(fill="x", pady=2)
 
-    tk.Label(frame_left, text="3. Ảnh đính kèm (Bắt buộc đủ 4 ảnh):", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(8, 2))
+    # 3. Nhà cung cấp (GHI CHÚ ĐỂ XUẤT BÁO CÁO)
+    tk.Label(frame_left, text="3. Ghi chú Nhà cung cấp (Lưu báo cáo Excel):", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(8, 2))
+    combo_ncc = ttk.Combobox(frame_left, font=font_entry, state="normal")
+    combo_ncc['values'] = [
+        "Hùng Vôi",
+        "Báu",
+        "Đức Tuệ",
+        "Tuấn Huyền",
+        "Nam Mắt To",
+        "Thắng 30/4"
+    ]
+    combo_ncc.current(0)
+    combo_ncc.pack(fill="x", pady=2)
+
+    # 4. Ảnh đính kèm
+    tk.Label(frame_left, text="4. Ảnh đính kèm (Bắt buộc đủ 4 ảnh):", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(8, 2))
     lbl_img_count = tk.Label(frame_left, text="Chưa chọn ảnh nào (Yêu cầu 4 ảnh)", fg="red", font=("Segoe UI", 9, "italic"))
     lbl_img_count.pack(anchor="w")
 
@@ -102,6 +122,7 @@ def open_queue_manager():
     btn_img = tk.Button(frame_left, text="Chọn 4 ảnh...", command=browse_images)
     btn_img.pack(anchor="w", pady=4)
 
+    # Cán bộ phê duyệt
     frame_users = tk.LabelFrame(frame_left, text=" Cán bộ phê duyệt trong ca ", font=font_lbl)
     frame_users.pack(fill="x", pady=10)
 
@@ -123,17 +144,21 @@ def open_queue_manager():
     btn_add = tk.Button(frame_left, text="+ THÊM VÀO HÀNG CHỜ", font=("Segoe UI", 11, "bold"), bg="#1890ff", fg="white", command=lambda: add_to_queue(), height=2)
     btn_add.pack(fill="x", pady=15)
 
+    # --- BẢNG HÀNG CHỜ ---
     tk.Label(frame_right, text="DANH SÁCH ĐƠN CHỜ XỬ LÝ:", font=("Segoe UI", 10, "bold")).pack(anchor="w")
 
-    tree = ttk.Treeview(frame_right, columns=("STT", "BienSo", "Chuyen", "SoAnh"), show="headings", height=10)
+    tree = ttk.Treeview(frame_right, columns=("STT", "BienSo", "Chuyen", "NCC", "SoAnh"), show="headings", height=10)
     tree.heading("STT", text="STT")
     tree.heading("BienSo", text="Biển số")
     tree.heading("Chuyen", text="Chuyến")
+    tree.heading("NCC", text="Ghi chú (Báo cáo)")
     tree.heading("SoAnh", text="Ảnh")
+    
     tree.column("STT", width=40, anchor="center")
-    tree.column("BienSo", width=140, anchor="center")
-    tree.column("Chuyen", width=70, anchor="center")
-    tree.column("SoAnh", width=80, anchor="center")
+    tree.column("BienSo", width=120, anchor="center")
+    tree.column("Chuyen", width=60, anchor="center")
+    tree.column("NCC", width=200, anchor="w")
+    tree.column("SoAnh", width=70, anchor="center")
     tree.pack(fill="both", expand=True, pady=5)
 
     btn_del = tk.Button(frame_right, text="Xóa đơn đang chọn", command=lambda: delete_selected())
@@ -150,7 +175,8 @@ def open_queue_manager():
     btn_start_all = tk.Button(frame_right, text="BẮT ĐẦU CHẠY HÀNG CHỜ", font=("Segoe UI", 12, "bold"), bg="#52c41a", fg="white", command=start_running, height=2)
     btn_start_all.pack(fill="x", pady=(10, 0))
 
-    frame_preview = tk.LabelFrame(root, text=" Xem trước 4 ảnh của đơn đang chọn (Kích thước lớn) ", font=("Segoe UI", 10, "bold"))
+    # --- KHUNG PREVIEW ẢNH ---
+    frame_preview = tk.LabelFrame(root, text=" Xem trước 4 ảnh của đơn đang chọn ", font=("Segoe UI", 10, "bold"))
     frame_preview.pack(side="bottom", fill="x", padx=15, pady=(0, 15))
     
     img_labels = []
@@ -189,10 +215,26 @@ def open_queue_manager():
         nonlocal temp_selected_images
         plate = entry_plate.get().strip()
         trip = entry_trip.get().strip()
+        ncc_val = combo_ncc.get().strip()
 
         if not plate:
             messagebox.showerror("Lỗi", "Vui lòng nhập Biển số xe!")
             return
+            
+        if not ncc_val:
+            messagebox.showerror("Lỗi", "Vui lòng nhập hoặc chọn Nhà cung cấp!")
+            return
+
+        clean_plate_input = plate.replace("-", "").replace(".", "").replace(" ", "").upper()
+        
+        if df_excel is not None and not df_excel.empty:
+            if clean_plate_input not in df_excel["clean_plate"].values:
+                messagebox.showwarning(
+                    "Cảnh báo: Không có biển số", 
+                    f"Biển số '{plate}' KHÔNG TỒN TẠI trong file Excel 'Khối lượng.xlsx'!\n\n"
+                    f"Vui lòng kiểm tra lại xem bạn có gõ sai không, hoặc cập nhật thêm biển này vào file Excel."
+                )
+                return 
 
         if not trip.isdigit() or int(trip) <= 0:
             messagebox.showerror("Lỗi", "Số chuyến phải là số nguyên dương!")
@@ -208,7 +250,6 @@ def open_queue_manager():
                 return
 
         formatted_trip = f"{int(trip):02d}"
-        
         folder_name = f"{plate}_C{formatted_trip}_{int(time.time())}"
         target_dir = os.path.join(TEMP_UPLOAD_DIR, folder_name)
         os.makedirs(target_dir, exist_ok=True)
@@ -227,6 +268,7 @@ def open_queue_manager():
         order_item = {
             "plate": plate,
             "trip": formatted_trip,
+            "ncc": ncc_val,          
             "images": new_image_paths,
             "thu_kho": entry_thukho.get().strip(),
             "bql": entry_bql.get().strip(),
@@ -235,7 +277,7 @@ def open_queue_manager():
         queue_data.append(order_item)
 
         stt = len(queue_data)
-        item_id = tree.insert("", "end", values=(stt, plate, formatted_trip, f"{len(new_image_paths)}/4"))
+        item_id = tree.insert("", "end", values=(stt, plate, formatted_trip, ncc_val, f"{len(new_image_paths)}/4"))
         
         tree.selection_set(item_id)
 
@@ -278,8 +320,38 @@ def open_queue_manager():
 
 
 # ==============================================================================
-# 3. ĐIỀU HƯỚNG & HÀM TƯƠNG TÁC (CHẬM & ỔN ĐỊNH TUYỆT ĐỐI)
+# 3. ĐIỀU HƯỚNG & HÀM TƯƠNG TÁC
 # ==============================================================================
+def smart_click(page, locator):
+    locator.wait_for(state="attached", timeout=6000)
+    locator.evaluate("el => el.scrollIntoView({block: 'center'})")
+    page.wait_for_timeout(300) 
+    locator.click(force=True)
+
+def choose_dropdown_option(page, keyword, exact_text=None):
+    page.wait_for_timeout(400) 
+    dropdown = page.locator(".ant-select-dropdown:visible").last
+    dropdown.wait_for(state="visible", timeout=6000)
+    
+    target_text = exact_text if exact_text else keyword
+    target_item = dropdown.locator(f"text='{target_text}'").first
+    
+    try:
+        target_item.wait_for(state="visible", timeout=2000)
+        target_item.evaluate("el => el.scrollIntoView({block: 'nearest'})")
+        page.wait_for_timeout(200)
+        target_item.click(force=True, timeout=2000)
+    except:
+        try:
+            fallback = dropdown.locator(".ant-select-item-option").first
+            fallback.evaluate("el => el.scrollIntoView({block: 'nearest'})")
+            page.wait_for_timeout(200)
+            fallback.click(force=True, timeout=2000)
+        except:
+            page.keyboard.press("Enter")
+            
+    page.wait_for_timeout(300)
+
 def ensure_authenticated(context, page):
     page.wait_for_timeout(1500)
     if "/login" in page.url or page.locator("button:has-text('Đăng nhập')").count() > 0:
@@ -302,12 +374,10 @@ def ensure_authenticated(context, page):
         print("-> Đăng nhập thành công, lưu lại phiên...")
         context.storage_state(path=AUTH_FILE)
 
-    # ĐIỀU HƯỚNG THẲNG ĐẾN TRANG PHIẾU VẬN CHUYỂN, BỎ QUA GIAO DIỆN HOME
     if "quan-ly-kho" not in page.url:
         print("-> Đang vào thẳng trang Phiếu Vận Chuyển...")
         page.goto(URL_LIST, wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
-
 
 def switch_company(page, target_company="VINALPHA"):
     page.wait_for_timeout(1000)
@@ -320,12 +390,11 @@ def switch_company(page, target_company="VINALPHA"):
                 return
 
             print(f"Đang đổi công ty sang '{target_company}'...")
-            company_box.click(force=True)
-            page.wait_for_timeout(800)
+            smart_click(page, company_box)
 
             item_target = page.locator(f".ant-dropdown:visible div:has-text('{target_company}'), div:has-text('HẠ TẦNG {target_company}'), div:has-text('{target_company}')").last
             item_target.wait_for(state="visible", timeout=6000)
-            item_target.click(force=True)
+            smart_click(page, item_target)
             page.wait_for_timeout(2500)
 
             if target_company in company_box.inner_text():
@@ -336,7 +405,6 @@ def switch_company(page, target_company="VINALPHA"):
                 raise RuntimeError(f"Không thể chuyển sang công ty {target_company}: {e}")
             page.wait_for_timeout(1000)
 
-
 def select_sidebar_user(page, role_title, user_name):
     if not user_name:
         raise ValueError(f"Thiếu thông tin cán bộ cho vai trò: '{role_title}'")
@@ -344,63 +412,57 @@ def select_sidebar_user(page, role_title, user_name):
     block = page.locator(f"div:has(> div:has-text('{role_title}')), div:has-text('{role_title}')").last
     field = block.locator(".ant-select-selector, input, div:has-text('Tìm kiếm...')").last
     field.wait_for(state="visible", timeout=6000)
-    field.click(force=True)
-    page.wait_for_timeout(400)
-
-    page.keyboard.type(user_name, delay=40)
-    page.wait_for_timeout(700)
-
-    option = page.locator(f".ant-select-dropdown:visible .ant-select-item-option:has-text('{user_name}'), .ant-select-dropdown:visible div:has-text('{user_name}')").last
-    option.wait_for(state="visible", timeout=6000)
-    option.click(force=True)
-    page.wait_for_timeout(400)
+    
+    smart_click(page, field)
+    page.keyboard.type(user_name, delay=20)
+    choose_dropdown_option(page, user_name)
     print(f"  + Đã chọn '{role_title}': {user_name}")
-
 
 def create_single_slip(page, order, khoi_luong):
     bien_so = order["plate"]
     so_chuyen = order["trip"]
+    ncc_ghi_chu = order["ncc"]
     print(f"\n==================================================")
-    print(f">> ĐIỀN ĐƠN XE [{bien_so}] | CHUYẾN [{so_chuyen}] | KL: [{khoi_luong}]")
+    print(f">> ĐIỀN ĐƠN XE [{bien_so}] | CHUYẾN [{so_chuyen}] | KL: [{khoi_luong}] | NOTE: [{ncc_ghi_chu}]")
     print(f"==================================================")
 
     page.goto(URL_LIST, wait_until="domcontentloaded")
     page.wait_for_timeout(2000)
 
-    # 1. Bấm '+ Tạo mới'
     btn_create = page.locator("button:has-text('Tạo mới'), a:has-text('Tạo mới')").first
     btn_create.wait_for(state="visible", timeout=15000)
     btn_create.click()
     page.wait_for_selector("text='Thông tin chung'", timeout=10000)
     page.wait_for_timeout(1000)
 
-    # 2. Chọn Dự án
+    # ----------------------------------------------------
+    # 2. CHỌN DỰ ÁN
+    # ----------------------------------------------------
     box_du_an = page.locator("div:has-text('Chọn dự án')").last
-    box_du_an.click(force=True)
-    page.wait_for_timeout(500)
-
-    page.keyboard.type("Hòa Long", delay=40)
-    page.wait_for_timeout(600)
-
-    item_du_an = page.locator(f"div:has-text('{DU_AN}'), .ant-select-item-option:has-text('Hòa Long')").last
-    item_du_an.wait_for(state="visible", timeout=10000)
-    item_du_an.click(force=True)
+    smart_click(page, box_du_an)
+    page.keyboard.type("Hòa Long", delay=20)
+    choose_dropdown_option(page, "Hòa Long", DU_AN)
     print(f"  + Đã chọn Dự án: {DU_AN}")
-    page.wait_for_timeout(2000)
 
-    # 3. Chọn Đơn vị
-    box_don_vi = page.locator(".ant-select").filter(has=page.locator("text='Chọn'")).last
-    box_don_vi.wait_for(state="visible", timeout=6000)
-    box_don_vi.click(force=True)
-    page.wait_for_timeout(600)
+    # BẢO VỆ CHỐNG DÍNH MENU 
+    page.locator("text='Thông tin chung'").last.click(force=True)
+    page.wait_for_timeout(1500) 
 
-    option_dv = page.locator(".ant-select-dropdown:visible").locator(f"text={DON_VI_KEYWORD}").first
-    if option_dv.count() == 0:
-        option_dv = page.locator(".ant-select-dropdown:visible .ant-select-item-option").first
-    option_dv.wait_for(state="visible", timeout=6000)
-    option_dv.click(force=True)
+    # ----------------------------------------------------
+    # 3. CHỌN ĐƠN VỊ 
+    # ----------------------------------------------------
+    print(f"  + Tìm và chọn Đơn vị: {DON_VI_KEYWORD} ...")
+    
+    box_don_vi = page.locator("div:has-text('Chọn đơn vị'), div:has-text('Chọn Đơn vị')").last
+    if box_don_vi.count() == 0:
+        box_don_vi = page.locator(".ant-select").filter(has=page.locator("text='Chọn'")).last
+
+    smart_click(page, box_don_vi)
+    page.wait_for_timeout(300)
+    page.keyboard.type(DON_VI_KEYWORD, delay=20)
+    choose_dropdown_option(page, DON_VI_KEYWORD)
     print(f"  + Đã chọn Đơn vị: {DON_VI_KEYWORD}")
-    page.wait_for_timeout(2500)
+    page.wait_for_timeout(500)
 
     # 4. Chọn Cán bộ phê duyệt
     select_sidebar_user(page, "Thủ kho BCH", order["thu_kho"])
@@ -408,85 +470,63 @@ def create_single_slip(page, order, khoi_luong):
     select_sidebar_user(page, "Nhân viên an ninh (Xác nhận vào cổng)", order["an_ninh"])
     select_sidebar_user(page, "Nhân viên an ninh (Xác nhận ra cổng)", order["an_ninh"])
 
-    # 5. Chọn Ngày đăng ký (Ngày hiện tại)
+    # 5. Chọn Ngày đăng ký
     date_box = page.locator("input[placeholder*='Chọn ngày'], div:has-text('Chọn ngày')").last
-    date_box.click(force=True)
-    page.wait_for_timeout(400)
+    smart_click(page, date_box)
 
     today_btn = page.locator("a:has-text('Hôm nay'), button:has-text('Hôm nay'), td[class*='today']").last
     if today_btn.is_visible():
-        today_btn.click(force=True)
+        smart_click(page, today_btn)
     else:
-        today_str = datetime.now().strftime("%d/%m/%Y")
-        date_box.fill(today_str)
+        date_box.fill(datetime.now().strftime("%d/%m/%Y"))
         page.keyboard.press("Enter")
 
-    # 6. Điền thông tin xe & chuyến
+    # 6. Điền thông tin xe
     page.locator("input[placeholder='Nhập hạng mục công việc']").fill(HANG_MUC)
     page.locator("input[placeholder='Nhập loại phương tiện']").fill(LOAI_PHUONG_TIEN)
     page.locator("input[placeholder='Nhập biển số xe']").fill(bien_so)
     page.locator("input[placeholder='Nhập số chuyến']").fill(so_chuyen)
 
     # 7. Mở popup Thêm vật tư
-    page.locator("button:has-text('Thêm vật tư')").click()
+    btn_them_vt = page.locator("button:has-text('Thêm vật tư')")
+    smart_click(page, btn_them_vt)
+    
     modal = page.locator("div[role='dialog'], .ant-modal").last
     modal.wait_for(state="visible", timeout=6000)
-    page.wait_for_timeout(800)
 
-    # 7.1. TÊN VẬT TƯ: Dropdown thứ nhất (nth 0)
+    # 7.1 Tên vật tư
     print("  + Chọn Tên vật tư...")
     select_ten_vt = modal.locator(".ant-select").nth(0)
-    select_ten_vt.wait_for(state="visible", timeout=5000)
-    select_ten_vt.click(force=True)
-    page.wait_for_timeout(400)
+    smart_click(page, select_ten_vt)
+    page.keyboard.type(TEN_VAT_TU, delay=20)
+    choose_dropdown_option(page, TEN_VAT_TU)
 
-    page.keyboard.type(TEN_VAT_TU, delay=60)
-    page.wait_for_timeout(800)
-    item_vt = page.locator(".ant-select-dropdown:visible").locator(f"text='{TEN_VAT_TU}'").first
-    item_vt.wait_for(state="visible", timeout=6000)
-    item_vt.click(force=True)
-    print(f"  -> Đã chọn Tên vật tư: {TEN_VAT_TU}")
-    page.wait_for_timeout(800)
-
-    # 7.2. NHÀ CUNG CẤP: Dropdown thứ ba (nth 2)
-    print("  + Chọn Nhà cung cấp...")
+    # 7.2 NHÀ CUNG CẤP LẤY CỐ ĐỊNH LÀ "VẠN XUÂN" ĐỂ ĐIỀN TRÊN WEB
+    print(f"  + Chọn Nhà cung cấp: {NHA_CUNG_CAP_FULL} ...")
     select_ncc = modal.locator(".ant-select").nth(2)
-    select_ncc.wait_for(state="visible", timeout=5000)
-    select_ncc.click(force=True)
-    page.wait_for_timeout(400)
+    smart_click(page, select_ncc)
+    page.keyboard.type(DON_VI_KEYWORD, delay=10)
+    choose_dropdown_option(page, DON_VI_KEYWORD, NHA_CUNG_CAP_FULL)
 
-    page.keyboard.type(DON_VI_KEYWORD, delay=60)
-    page.wait_for_timeout(800)
-    item_ncc = page.locator(".ant-select-dropdown:visible").locator(f"text='{NHA_CUNG_CAP_FULL}'").first
-    if item_ncc.count() == 0:
-        item_ncc = page.locator(".ant-select-dropdown:visible").locator(f"text='{DON_VI_KEYWORD}'").first
-    item_ncc.wait_for(state="visible", timeout=6000)
-    item_ncc.click(force=True)
-    print(f"  -> Đã chọn Nhà cung cấp: {NHA_CUNG_CAP_FULL}")
-    page.wait_for_timeout(500)
-
-    # 7.3. KHỐI LƯỢNG
+    # 7.3 Khối lượng
     kl_formatted = str(khoi_luong).replace(".", ",")
     input_kl = modal.locator("input[placeholder*='khối lượng'], input[placeholder*='Nhập khối lượng']").last
-    input_kl.click(force=True)
-    page.wait_for_timeout(200)
+    smart_click(page, input_kl)
     page.keyboard.press("Control+A")
     page.keyboard.press("Backspace")
-    page.wait_for_timeout(150)
-    page.keyboard.type(kl_formatted, delay=50)
-    page.wait_for_timeout(600)
+    page.keyboard.type(kl_formatted, delay=20)
 
-    # 7.4. Bấm 'Thêm'
-    modal.locator("button:has-text('Thêm')").last.click(force=True)
-    page.wait_for_timeout(1000)
+    # 7.4 Bấm 'Thêm'
+    btn_them = modal.locator("button:has-text('Thêm')").last
+    smart_click(page, btn_them)
+    page.wait_for_timeout(800)
 
     # 8. Nhập Vị trí
     input_vi_tri = page.locator("input[placeholder='Nhập vị trí']").last
-    input_vi_tri.wait_for(state="visible", timeout=5000)
+    smart_click(page, input_vi_tri)
     input_vi_tri.fill(VI_TRI)
-    page.wait_for_timeout(500)
 
-    # 9. TẢI 4 ẢNH ĐÍNH KÈM & CHỜ UPLOAD XONG HOÀN TOÀN
+    # 9. TẢI 4 ẢNH ĐÍNH KÈM
     images = order.get("images", [])
     if len(images) != 4:
         raise ValueError(f"Xe {bien_so} không đủ 4 ảnh để upload!")
@@ -495,33 +535,28 @@ def create_single_slip(page, order, khoi_luong):
     file_input.set_input_files(images)
     print("  + Bắt đầu tải 4 ảnh lên hệ thống, vui lòng chờ...")
 
-    page.wait_for_timeout(1000)  # Đợi 1 giây để UI kích hoạt trạng thái upload
+    page.wait_for_timeout(1000) 
 
     timeout_counter = 0
-    
-    # 9.1: Chờ cho đến khi TẤT CẢ các trạng thái "đang tải" (uploading) biến mất
     uploading_items = page.locator(".ant-upload-list-item-uploading")
     while uploading_items.count() > 0 and timeout_counter < 60:
         page.wait_for_timeout(1000)
         timeout_counter += 1
 
-    # 9.2: Chờ để đảm bảo đã có đủ 4 ảnh (trạng thái "done") xuất hiện trên web
     done_items = page.locator(".ant-upload-list-item-done, .ant-upload-list-item:not(.ant-upload-list-item-uploading)")
     while done_items.count() < 4 and timeout_counter < 60:
         page.wait_for_timeout(1000)
         timeout_counter += 1
 
-    page.wait_for_timeout(1500)  # Khoảng chờ an toàn cuối cùng trước khi bấm nút
+    page.wait_for_timeout(1500) 
     print("  + Toàn bộ 4/4 ảnh đã load lên web thành công!")
 
-    # 10. TỰ ĐỘNG BẤM LƯU LẠI
+    # 10. LƯU LẠI
     print("  + Bấm 'Lưu lại'...")
     btn_save = page.locator("button").filter(has_text="Lưu lại").last
-    btn_save.wait_for(state="visible", timeout=5000)
-    btn_save.scroll_into_view_if_needed()
-    btn_save.click()
+    smart_click(page, btn_save)
     print("  -> Đang chờ hệ thống xử lý lưu dữ liệu...")
-    page.wait_for_timeout(4000)  # Chờ 4 giây để API hoàn tất
+    page.wait_for_timeout(4000) 
 
 
 # ==============================================================================
@@ -529,9 +564,12 @@ def create_single_slip(page, order, khoi_luong):
 # ==============================================================================
 def main():
     if not os.path.exists(EXCEL_FILE):
-        print(f"LỖI: Không tìm thấy file Excel '{EXCEL_FILE}'!")
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("Lỗi file", f"Không tìm thấy file Excel '{EXCEL_FILE}'!\nBạn hãy kiểm tra lại thư mục.")
         return
 
+    df = None
     try:
         df = pd.read_excel(EXCEL_FILE)
         if COL_BIEN_SO not in df.columns or COL_KHOI_LUONG not in df.columns:
@@ -547,15 +585,14 @@ def main():
         print(f"LỖI đọc file Excel: {e}")
         return
 
-    # Mở giao diện lập hàng chờ
-    queue_orders = open_queue_manager()
+    queue_orders = open_queue_manager(df)
+    
     if not queue_orders:
         print("Đã hủy hoặc danh sách hàng chờ trống.")
         return
 
     try:
         with sync_playwright() as p:
-            # SỬ DỤNG SLOW_MO=40 VÀ ĐIỀU CHỈNH TRÌNH DUYỆT ĐỂ BẢO ĐẢM ỔN ĐỊNH
             browser = p.chromium.launch(headless=False, slow_mo=40, args=["--start-maximized"])
 
             if os.path.exists(AUTH_FILE):
@@ -571,15 +608,14 @@ def main():
             ensure_authenticated(context, page)
             switch_company(page, COMPANY_NAME)
 
-            # Xử lý tuần tự từng đơn tự động
             for idx, order in enumerate(queue_orders, 1):
                 bien_so = order["plate"]
                 so_chuyen = order["trip"]
+                ncc_ghi_chu = order["ncc"]
                 clean_target = bien_so.replace("-", "").replace(".", "").replace(" ", "").upper()
 
                 matched = df[df["clean_plate"] == clean_target]
                 if matched.empty:
-                    print(f"! [Đơn {idx}/{len(queue_orders)}] Bỏ qua xe {bien_so}: Không tìm thấy biển số trong Excel.")
                     continue
 
                 if has_trip_column:
@@ -587,7 +623,6 @@ def main():
                     if not trip_matched.empty:
                         khoi_luong = str(trip_matched.iloc[0][COL_KHOI_LUONG]).strip()
                     else:
-                        print(f"! Không tìm thấy chuyến {so_chuyen} của xe {bien_so}, lấy dòng đầu tiên.")
                         khoi_luong = str(matched.iloc[0][COL_KHOI_LUONG]).strip()
                 else:
                     khoi_luong = str(matched.iloc[0][COL_KHOI_LUONG]).strip()
@@ -595,14 +630,24 @@ def main():
                 try:
                     create_single_slip(page, order, khoi_luong)
                     print(f"-> [Hoàn tất {idx}/{len(queue_orders)}] Đã ĐIỀN VÀ LƯU XONG xe {bien_so} (Chuyến {so_chuyen}).")
-                    print(">> Tự động chuyển sang đơn tiếp theo...")
                     
-                    # DỌN DẸP ẢNH TẠM (Chỉ chạy khi phiếu tạo thành công)
+                    # --- XUẤT BÁO CÁO LƯU FILE CSV CHUẨN FORM (SỬ DỤNG DẤU CHẤM PHẨY) ---
+                    file_exists = os.path.isfile(REPORT_FILE)
+                    try:
+                        with open(REPORT_FILE, mode='a', encoding='utf-8-sig', newline='') as f:
+                            writer = csv.writer(f, delimiter=';') # Đã sửa ở đây
+                            if not file_exists:
+                                writer.writerow(["Biển kiểm soát", "Khối lượng", "Số chuyến tạo", "Nhà cung cấp", "Thời gian xuất"])
+                            writer.writerow([bien_so, khoi_luong, so_chuyen, ncc_ghi_chu, datetime.now().strftime("%d/%m/%Y %H:%M:%S")])
+                        print(f"   [+] Đã ghi nhật ký vào file {REPORT_FILE}")
+                    except Exception as log_err:
+                        print(f"   [!] Lỗi ghi file báo cáo (Có thể bạn đang mở file này bằng Excel): {log_err}")
+
+                    # Dọn dẹp ảnh tạm
                     if order.get("images"):
                         try:
                             folder_to_delete = os.path.dirname(order["images"][0])
                             shutil.rmtree(folder_to_delete, ignore_errors=True)
-                            print(f"   Đã dọn dẹp thư mục ảnh tạm của xe {bien_so}.")
                         except:
                             pass
                             
