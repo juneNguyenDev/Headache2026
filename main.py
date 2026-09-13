@@ -128,7 +128,7 @@ def open_queue_manager(df_excel):
 
     tk.Label(frame_users, text="Thủ kho BCH:").grid(row=0, column=0, sticky="w", padx=8, pady=3)
     entry_thukho = tk.Entry(frame_users, font=font_entry, width=22)
-    entry_thukho.insert(0, "Nguyễn Văn Nhật")
+    entry_thukho.insert(0, "Trần Minh Huyền")
     entry_thukho.grid(row=0, column=1, padx=8, pady=3)
 
     tk.Label(frame_users, text="Ban quản lý:").grid(row=1, column=0, sticky="w", padx=8, pady=3)
@@ -138,7 +138,7 @@ def open_queue_manager(df_excel):
 
     tk.Label(frame_users, text="An ninh:").grid(row=2, column=0, sticky="w", padx=8, pady=3)
     entry_anninh = tk.Entry(frame_users, font=font_entry, width=22)
-    entry_anninh.insert(0, "Nguyễn Đình Tây")
+    entry_anninh.insert(0, "Nguyễn Mạnh Hùng")
     entry_anninh.grid(row=2, column=1, padx=8, pady=3)
 
     btn_add = tk.Button(frame_left, text="+ THÊM VÀO HÀNG CHỜ", font=("Segoe UI", 11, "bold"), bg="#1890ff", fg="white", command=lambda: add_to_queue(), height=2)
@@ -426,11 +426,20 @@ def create_single_slip(page, order, khoi_luong):
     print(f">> ĐIỀN ĐƠN XE [{bien_so}] | CHUYẾN [{so_chuyen}] | KL: [{khoi_luong}] | NOTE: [{ncc_ghi_chu}]")
     print(f"==================================================")
 
-    page.goto(URL_LIST, wait_until="domcontentloaded")
-    page.wait_for_timeout(2000)
-
+    # ----------------------------------------------------
+    # KHÔNG DÙNG LỆNH PAGE.GOTO() NỮA ĐỂ THUẬN LUỒNG APP 
+    # Bấm trực tiếp nút Tạo Mới nếu nó đang hiện sẵn trên màn hình
+    # ----------------------------------------------------
     btn_create = page.locator("button:has-text('Tạo mới'), a:has-text('Tạo mới')").first
-    btn_create.wait_for(state="visible", timeout=15000)
+    try:
+        # Chờ tối đa 10s để nút Tạo mới xuất hiện tự nhiên
+        btn_create.wait_for(state="visible", timeout=10000)
+    except:
+        # Fallback: Chỉ tải lại trang khi bị lỗi đơ mạng không hiện nút
+        print("  -> Không tìm thấy nút Tạo mới, đang thử tải lại trang...")
+        page.goto(URL_LIST, wait_until="domcontentloaded")
+        btn_create.wait_for(state="visible", timeout=15000)
+
     btn_create.click()
     page.wait_for_selector("text='Thông tin chung'", timeout=10000)
     page.wait_for_timeout(1000)
@@ -551,12 +560,26 @@ def create_single_slip(page, order, khoi_luong):
     page.wait_for_timeout(1500) 
     print("  + Toàn bộ 4/4 ảnh đã load lên web thành công!")
 
-    # 10. LƯU LẠI
-    print("  + Bấm 'Lưu lại'...")
-    btn_save = page.locator("button").filter(has_text="Lưu lại").last
-    smart_click(page, btn_save)
-    print("  -> Đang chờ hệ thống xử lý lưu dữ liệu...")
-    page.wait_for_timeout(4000) 
+    # ----------------------------------------------------
+    # ----------------------------------------------------
+    # ----------------------------------------------------
+    # ----------------------------------------------------
+    # ----------------------------------------------------
+    # 10. GỬI ĐƠN VÀ ĐỢI VỀ TRANG DANH SÁCH
+    # ----------------------------------------------------
+    print("  + Bấm 'Lưu & Gửi đơn'...")
+    btn_send = page.locator("button").filter(has_text="Lưu & Gửi đơn").last
+    smart_click(page, btn_send)
+    print("  -> Đang chờ hệ thống xử lý gửi và tự động quay về danh sách...") 
+
+    # Ép tool đứng im chờ cho đến khi trang web tự đẩy về màn hình danh sách
+    try:
+        page.wait_for_selector("button:has-text('Tạo mới')", state="visible", timeout=15000)
+        page.wait_for_timeout(800) 
+        print("  -> Đã GỬI ĐƠN thành công và quay về màn hình Quản lý phiếu!")
+    except Exception:
+        print("  -> Mạng xử lý hơi chậm, ép đợi thêm 5 giây...")
+        page.wait_for_timeout(5000)
 
 
 # ==============================================================================
